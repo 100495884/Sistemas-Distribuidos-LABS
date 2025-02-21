@@ -24,9 +24,11 @@ void funcion(int *id) {
 	pthread_mutex_unlock(&mutex);
 
 	for(j=0 ; j < ITER; j++) {
+        pthread_mutex_lock(&mutex);
 		k = (double) rand_r((unsigned int *) &s) / RAND_MAX;	
 		usleep((int) (k * 100000)); // duerme entre 0 y 100 ms
 		printf("Ejecuta el thread %d iteracion %d id abs %ld \n", mid, j, pthread_self()); 
+        pthread_mutex_unlock(&mutex);
 	}
 	
 	pthread_exit(NULL);

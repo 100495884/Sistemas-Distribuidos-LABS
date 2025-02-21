@@ -5,12 +5,16 @@
 #include <unistd.h>
 #include <pthread.h>
 
-#define NUM_THREADS	2
+#define NUM_THREADS	10
 #define ITER 		10
 
 int turno;
+int turno2;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex2 = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond2 = PTHREAD_COND_INITIALIZER;
+
 
 void funcion(int *id) {
 	int j;
@@ -24,9 +28,16 @@ void funcion(int *id) {
 	pthread_mutex_unlock(&mutex);
 
 	for(j=0 ; j < ITER; j++) {
+        pthread_mutex_lock(&mutex2);
+        while (turno2 != mid) {
+            pthread_cond_wait(&cond2, &mutex2);
+        }
 		k = (double) rand_r((unsigned int *) &s) / RAND_MAX;	
 		usleep((int) (k * 100000)); // duerme entre 0 y 100 ms
 		printf("Ejecuta el thread %d iteracion %d id abs %ld \n", mid, j, pthread_self()); 
+        turno2 = (turno2 + 1) % NUM_THREADS;
+        pthread_cond_broadcast(&cond2);
+        pthread_mutex_unlock(&mutex2);
 	}
 	
 	pthread_exit(NULL);
@@ -46,6 +57,7 @@ int main(int argc, char *argv[])
 	pthread_attr_init(&attr);
 
 	turno = 0;
+    turno2 = 0;
 
 	for (j = 0; j < NUM_THREADS; j++){
 		if (pthread_create(&thid[j], NULL, (void *) funcion, &j) == -1){
