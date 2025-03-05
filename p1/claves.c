@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>  // Biblioteca para hilos y mutex
 #include "claves.h"
+#include "claves_real.h"
 
 #define MAX_STRING 255
 #define MAX_VECTOR 32
@@ -19,7 +21,12 @@ typedef struct Node {
 // Puntero al inicio de la lista (almacenará todas las tuplas)
 Node *head = NULL;
 
-int destroy() {
+// Definir un mutex global
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int _destroy() {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     Node *current = head;
     Node *temp;
 
@@ -30,28 +37,36 @@ int destroy() {
     }
 
     head = NULL;  // La lista queda vacía
+
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return 0;
 }
 
-int set_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+int _set_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     // Validar si la clave ya existe
     if (exist(key)) {
+        pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
         return -1;
     }
 
     // Validar rango de N_value2
     if (N_value2 < 1 || N_value2 > MAX_VECTOR) {
+        pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
         return -1;
     }
 
     // Validar tamaño de value1
     if (strlen(value1) >= MAX_STRING) {
+        pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
         return -1;
     }
 
     // Crear un nuevo nodo
     Node *new_node = (Node *)malloc(sizeof(Node));
     if (new_node == NULL) {
+        pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
         return -1;  // Error de memoria
     }
 
@@ -66,10 +81,13 @@ int set_value(int key, char *value1, int N_value2, double *V_value2, struct Coor
     // Actualizar el puntero de la lista
     head = new_node;
 
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return 0;  // Éxito
 }
 
-int get_value(int key, char *value1, int *N_value2, double *V_value2, struct Coord *value3) {
+int _get_value(int key, char *value1, int *N_value2, double *V_value2, struct Coord *value3) {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     Node *current = head;
 
     // Buscar la clave en la lista
@@ -80,15 +98,20 @@ int get_value(int key, char *value1, int *N_value2, double *V_value2, struct Coo
             *N_value2 = current->N_value2;
             memcpy(V_value2, current->value2, (*N_value2) * sizeof(double));
             *value3 = current->value3;
+
+            pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
             return 0;  // Éxito
         }
         current = current->next;
     }
 
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return -1;  // Clave no encontrada
 }
 
-int modify_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+int _modify_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     Node *current = head;
 
     // Buscar la clave en la lista
@@ -96,11 +119,13 @@ int modify_value(int key, char *value1, int N_value2, double *V_value2, struct C
         if (current->key == key) {
             // Validar tamaño de value1
             if (strlen(value1) >= MAX_STRING) {
+                pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
                 return -1;
             }
 
             // Validar rango de N_value2
             if (N_value2 < 1 || N_value2 > MAX_VECTOR) {
+                pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
                 return -1;
             }
 
@@ -110,15 +135,19 @@ int modify_value(int key, char *value1, int N_value2, double *V_value2, struct C
             memcpy(current->value2, V_value2, N_value2 * sizeof(double));
             current->value3 = value3;
 
+            pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
             return 0;  // Éxito
         }
         current = current->next;
     }
 
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return -1;  // Clave no encontrada
 }
 
-int delete_key(int key) {
+int _delete_key(int key) {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     Node *current = head;
     Node *prev = NULL;
 
@@ -133,24 +162,31 @@ int delete_key(int key) {
             }
 
             free(current);  // Liberar la memoria del nodo eliminado
+
+            pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
             return 0;  // Éxito
         }
         prev = current;
         current = current->next;
     }
 
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return -1;  // Clave no encontrada
 }
 
-int exist(int key) {
+int _exist(int key) {
+    pthread_mutex_lock(&mutex);  // Bloquear el mutex
+
     Node *current = head;
 
     while (current != NULL) {
         if (current->key == key) {
+            pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
             return 1;  // La clave existe
         }
         current = current->next;
     }
 
+    pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
     return 0;  // La clave no existe
 }

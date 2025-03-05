@@ -1,17 +1,25 @@
-BIN_FILES  = p1
-
+# Variables
 CC = gcc
+CFLAGS = -Wall -pthread
+SRC = servidor-mq.c claves.c proxy-mq.c
+OBJ = $(SRC:.c=.o)
+EXEC = servidor-mq
 
-CFLAGS = -Wall
+# Regla para compilar el ejecutable
+$(EXEC): $(OBJ)
+	$(CC) $(OBJ) -o $(EXEC)
 
-all: $(BIN_FILES)
-
-p1: p1.o
-	$(CC) $(CFLAGS) $^  -o $@
-
+# Regla para compilar los archivos .c en .o
 %.o: %.c
-	$(CC) $(CFLAGS) -c $<
+	$(CC) $(CFLAGS) -c $< -o $@
 
+# Limpiar los archivos generados
 clean:
-	rm -f $(BIN_FILES) *.o
+	rm -f $(OBJ) $(EXEC)
 
+# Regla para ejecutar el programa
+run: $(EXEC)
+	./$(EXEC)
+
+# Regla por defecto (ejecutar el programa)
+all: $(EXEC) run
