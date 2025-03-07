@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
     // Bucle de envío/recepción de mensajes
     while (1) {
         // Leer una línea desde la entrada estándar (teclado)
-        printf("Introduce un mensaje (o 'EXIT' para salir): ");
+        printf("\nIntroduce un mensaje (o 'EXIT' para salir): \n");
         n = readLine(0, buffer, MAX_LINE);
         if (n == -1) {
             perror("Error en readLine");
