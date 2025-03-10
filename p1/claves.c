@@ -24,7 +24,7 @@ Node *head = NULL;
 // Definir un mutex global
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-int _destroy() {
+int real_destroy() {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     Node *current = head;
@@ -42,11 +42,11 @@ int _destroy() {
     return 0;
 }
 
-int _set_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+int real_set_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     // Validar si la clave ya existe
-    if (exist(key)) {
+    if (real_exist(key)) {
         pthread_mutex_unlock(&mutex);  // Desbloquear el mutex
         return -1;
     }
@@ -85,7 +85,7 @@ int _set_value(int key, char *value1, int N_value2, double *V_value2, struct Coo
     return 0;  // Éxito
 }
 
-int _get_value(int key, char *value1, int *N_value2, double *V_value2, struct Coord *value3) {
+int real_get_value(int key, char *value1, int *N_value2, double *V_value2, struct Coord *value3) {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     Node *current = head;
@@ -109,7 +109,7 @@ int _get_value(int key, char *value1, int *N_value2, double *V_value2, struct Co
     return -1;  // Clave no encontrada
 }
 
-int _modify_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
+int real_modify_value(int key, char *value1, int N_value2, double *V_value2, struct Coord value3) {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     Node *current = head;
@@ -145,7 +145,7 @@ int _modify_value(int key, char *value1, int N_value2, double *V_value2, struct 
     return -1;  // Clave no encontrada
 }
 
-int _delete_key(int key) {
+int real_delete_key(int key) {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     Node *current = head;
@@ -174,7 +174,7 @@ int _delete_key(int key) {
     return -1;  // Clave no encontrada
 }
 
-int _exist(int key) {
+int real_exist(int key) {
     pthread_mutex_lock(&mutex);  // Bloquear el mutex
 
     Node *current = head;
