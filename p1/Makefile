@@ -1,25 +1,23 @@
-# Variables
 CC = gcc
-CFLAGS = -Wall -pthread
-SRC = servidor-mq.c claves.c proxy-mq.c
-OBJ = $(SRC:.c=.o)
-EXEC = servidor-mq
+CFLAGS = -Wall -Wextra -pedantic -fPIC
+LDFLAGS = -lrt -lpthread
+CLIENT_SRC = app-cliente.c
+SERVER_SRC = servidor-mq.c
+PROXY_SRC = proxy-mq.c
+CLAVES_SRC = claves.c
 
-# Regla para compilar el ejecutable
-$(EXEC): $(OBJ)
-	$(CC) $(OBJ) -o $(EXEC)
+all: servidor cliente libclaves.so
 
-# Regla para compilar los archivos .c en .o
-%.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+servidor: $(SERVER_SRC) $(CLAVES_SRC)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Limpiar los archivos generados
+cliente: $(CLIENT_SRC) libclaves.so
+	$(CC) $(CFLAGS) -o $@ $< -L. -lclaves $(LDFLAGS)
+
+libclaves.so: $(PROXY_SRC)
+	$(CC) $(CFLAGS) -shared -o $@ $^ $(LDFLAGS)
+
 clean:
-	rm -f $(OBJ) $(EXEC)
+	rm -f servidor cliente *.o *.so
 
-# Regla para ejecutar el programa
-run: $(EXEC)
-	./$(EXEC)
-
-# Regla por defecto (ejecutar el programa)
-all: $(EXEC) run
+.PHONY: all clean

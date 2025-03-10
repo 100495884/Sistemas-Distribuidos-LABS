@@ -22,37 +22,45 @@ typedef struct {
 int send_request(message_t *request, message_t *response) {
     mqd_t mq_server, mq_client;
     char client_queue[1024];
-    int prio;
-    struct mq_attr attr = {0, 10, MAX_MSG_SIZE, 0};
+    struct mq_attr attr = {
+        .mq_flags = 0,
+        .mq_maxmsg = 10,
+        .mq_msgsize = MAX_MSG_SIZE,
+        .mq_curmsgs = 0
+    };
+
     
     // Crear nombre único para la cola del cliente
-    sprintf(client_queue, "/CLIENTE_%d", getpid());
-    strcpy(request->q_name, client_queue);
+    snprintf(client_queue, sizeof(client_queue), "/client_%d", getpid());
+    strncpy(request->q_name, client_queue, sizeof(request->q_name));
     
     // Abrir la cola del servidor
     mq_server = mq_open(MQ_SERVER, O_WRONLY);
-    if (mq_server == -1) return -2;
+    if(mq_server == (mqd_t)-1) return -2;
     
     // Abrir la cola del cliente para recibir respuesta
     mq_client = mq_open(client_queue, O_CREAT | O_RDONLY, 0666, &attr);
     if (mq_client == -1) {
         mq_close(mq_server);
+        printf("Error al abrir la cola del cliente\n");
         return -2;
     }
     
     // Enviar solicitud
-    if (mq_send(mq_server, (char *)request, sizeof(message_t), 0) == -1) {
+    if (mq_send(mq_server, (char*)request, sizeof(*request), 0) == -1) {
         mq_close(mq_server);
         mq_close(mq_client);
         mq_unlink(client_queue);
+        printf("Error al enviar la solicitud\n");
         return -2;
     }
     mq_close(mq_server);
     
     // Recibir respuesta
-    if (mq_receive(mq_client, (char *)response, MAX_MSG_SIZE, &prio) == -1) {
+    if (mq_receive(mq_client, (char*)response, MAX_MSG_SIZE, NULL) == -1) {
         mq_close(mq_client);
         mq_unlink(client_queue);
+        printf("Error al recibir la respuesta\n");
         return -2;
     }
     
