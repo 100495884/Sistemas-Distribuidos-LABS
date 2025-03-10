@@ -6,9 +6,8 @@
 #include "claves.h"
 
 #define MQ_SERVER "/mq_server"
-#define MAX_MSG_SIZE 1024
+#define MAX_MSG_SIZE 1024  // Ajustado al tamaño de message_t
 
-// Estructura para mensajes
 typedef struct {
     int operation;
     int key;
@@ -16,58 +15,63 @@ typedef struct {
     int N_value2;
     double V_value2[32];
     struct Coord value3;
-    char q_name[1024];
+    char q_name[64];
 } message_t;
 
 int send_request(message_t *request, message_t *response) {
     mqd_t mq_server, mq_client;
-    char client_queue[1024];
+    char client_queue[64];
     struct mq_attr attr = {
         .mq_flags = 0,
         .mq_maxmsg = 10,
-        .mq_msgsize = MAX_MSG_SIZE,
+        .mq_msgsize = MAX_MSG_SIZE,  // Tamaño máximo del mensaje
         .mq_curmsgs = 0
     };
 
-    
     // Crear nombre único para la cola del cliente
     snprintf(client_queue, sizeof(client_queue), "/client_%d", getpid());
     strncpy(request->q_name, client_queue, sizeof(request->q_name));
-    
+
+    printf("Creando cola del cliente: %s\n", client_queue);
+
     // Abrir la cola del servidor
     mq_server = mq_open(MQ_SERVER, O_WRONLY);
-    if(mq_server == (mqd_t)-1) return -2;
-    
+    if (mq_server == (mqd_t)-1) {
+        perror("Error al abrir la cola del servidor");
+        return -2;
+    }
+
     // Abrir la cola del cliente para recibir respuesta
     mq_client = mq_open(client_queue, O_CREAT | O_RDONLY, 0666, &attr);
     if (mq_client == -1) {
         mq_close(mq_server);
-        printf("Error al abrir la cola del cliente\n");
+        perror("Error al abrir la cola del cliente");
         return -2;
     }
-    
+
     // Enviar solicitud
     if (mq_send(mq_server, (char*)request, sizeof(*request), 0) == -1) {
         mq_close(mq_server);
         mq_close(mq_client);
         mq_unlink(client_queue);
-        printf("Error al enviar la solicitud\n");
+        perror("Error al enviar la solicitud");
         return -2;
     }
     mq_close(mq_server);
-    
+
     // Recibir respuesta
     if (mq_receive(mq_client, (char*)response, MAX_MSG_SIZE, NULL) == -1) {
         mq_close(mq_client);
         mq_unlink(client_queue);
-        printf("Error al recibir la respuesta\n");
+        perror("Error al recibir la respuesta");
         return -2;
     }
-    
+
     mq_close(mq_client);
     mq_unlink(client_queue);
     return response->operation;
 }
+
 
 int destroy() {
     message_t request = {1, 0, "", 0, {0}, {0, 0}, ""};

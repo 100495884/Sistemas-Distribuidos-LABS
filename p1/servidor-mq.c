@@ -9,9 +9,8 @@
 #include "claves_real.h"
 
 #define MQ_SERVER "/mq_server"
-#define MAX_MSG_SIZE sizeof(message_t)
+#define MAX_MSG_SIZE 1024  // Ajustado al tamaño de message_t
 
-// Estructura para mensajes
 typedef struct {
     int operation;
     int key;
@@ -19,7 +18,7 @@ typedef struct {
     int N_value2;
     double V_value2[32];
     struct Coord value3;
-    char q_name[1024];
+    char q_name[64];
 } message_t;
 
 pthread_mutex_t sync_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -51,14 +50,18 @@ void *handle_request(void *arg) {
         }
     }
 
+    printf("Abriendo cola del cliente: %s\n", p_local.q_name);
     mq_client = mq_open(p_local.q_name, O_WRONLY);
     if (mq_client != (mqd_t)-1) {
         mq_send(mq_client, (char*)&response, sizeof(response), 0);
         mq_close(mq_client);
+    } else {
+        perror("Error al abrir la cola del cliente en el servidor");
     }
 
     pthread_exit(NULL);
 }
+
 
 int main() {
     mqd_t mq_server;
