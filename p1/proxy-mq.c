@@ -24,28 +24,29 @@ int send_request(message_t *request, message_t *response) {
     struct mq_attr attr = {
         .mq_flags = 0,
         .mq_maxmsg = 10,
-        .mq_msgsize = MAX_MSG_SIZE,  // Tamaño máximo del mensaje
+        .mq_msgsize = MAX_MSG_SIZE,
         .mq_curmsgs = 0
     };
 
     // Crear nombre único para la cola del cliente
-    snprintf(client_queue, sizeof(client_queue), "/client_%d", getpid());
+    snprintf(client_queue, sizeof(client_queue), "/client_%d_%d", getpid(), rand());
     strncpy(request->q_name, client_queue, sizeof(request->q_name));
 
     printf("Creando cola del cliente: %s\n", client_queue);
 
-    // Abrir la cola del servidor
-    mq_server = mq_open(MQ_SERVER, O_WRONLY);
-    if (mq_server == (mqd_t)-1) {
-        perror("Error al abrir la cola del servidor");
+    // Crear la cola del cliente antes de enviar la solicitud
+    mq_client = mq_open(client_queue, O_CREAT | O_RDONLY, 0666, &attr);
+    if (mq_client == -1) {
+        perror("Error al crear la cola del cliente");
         return -2;
     }
 
-    // Abrir la cola del cliente para recibir respuesta
-    mq_client = mq_open(client_queue, O_CREAT | O_RDONLY, 0666, &attr);
-    if (mq_client == -1) {
-        mq_close(mq_server);
-        perror("Error al abrir la cola del cliente");
+    // Abrir la cola del servidor
+    mq_server = mq_open(MQ_SERVER, O_WRONLY);
+    if (mq_server == (mqd_t)-1) {
+        mq_close(mq_client);
+        mq_unlink(client_queue);
+        perror("Error al abrir la cola del servidor");
         return -2;
     }
 
