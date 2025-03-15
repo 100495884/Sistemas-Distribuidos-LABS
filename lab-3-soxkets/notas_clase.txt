@@ -1,0 +1,3 @@
+sudo apt intall gdb
+Tenemos en el makefile un cflags
+gdb --args ./(nombre de ejecutable) (Nº puerto) b/p/n/s/t (nombre de archivo.c) (Nº linea que quieres que pare)

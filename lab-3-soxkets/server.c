@@ -11,15 +11,9 @@
 
 #define MAX_LINE 256
 
-// Estructura para pasar datos a los hilos
-typedef struct {
-    int client_sd;  // Descriptor de socket del cliente
-} client_data_t;
-
 // Función que maneja la comunicación con un cliente
 void *handle_client(void *arg) {
-    client_data_t *data = (client_data_t *)arg;
-    int client_sd = data->client_sd;
+    int client_sd = *(int *)arg;  // Obtenemos el descriptor de socket del cliente
     char buffer[MAX_LINE];
     int n;
 
@@ -48,8 +42,8 @@ void *handle_client(void *arg) {
     // Cerrar la conexión con el cliente
     close(client_sd);
 
-    // Liberar la memoria asignada para los datos del cliente
-    free(data);
+    // Liberar la memoria asignada para el descriptor de socket
+    free(arg);
 
     // Terminar el hilo
     pthread_exit(NULL);
@@ -107,6 +101,11 @@ int main(int argc, char *argv[])
 
     fprintf(stderr, "Servidor escuchando en el puerto %d...\n", port);
 
+    // Configurar atributos de los hilos
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);  // Inicializar los atributos del hilo
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);  // Hilos "detached"
+
     // Bucle principal para aceptar conexiones
     while (1) {
         // Aceptar una conexión de un cliente
@@ -120,27 +119,27 @@ int main(int argc, char *argv[])
             continue;
         }
 
-        // Crear una estructura para pasar datos al hilo
-        client_data_t *data = (client_data_t *)malloc(sizeof(client_data_t));
-        if (data == NULL) {
+        // Reservar memoria para el descriptor de socket del cliente
+        int *client_sd_ptr = (int *)malloc(sizeof(int));
+        if (client_sd_ptr == NULL) {
             perror("Error en malloc");
             close(client_sd);
             continue;
         }
-        data->client_sd = client_sd;
+        *client_sd_ptr = client_sd;  // Guardar el descriptor de socket
 
         // Crear un hilo para manejar al cliente
         pthread_t thread;
-        if (pthread_create(&thread, NULL, handle_client, (void *)data) != 0) {
+        if (pthread_create(&thread, &attr, handle_client, (void *)client_sd_ptr) != 0) {
             perror("Error en pthread_create");
-            free(data);
+            free(client_sd_ptr);
             close(client_sd);
             continue;
         }
-
-        // Desvincular el hilo para que se libere automáticamente al terminar
-        pthread_detach(thread);
     }
+
+    // Destruir los atributos de los hilos (esto nunca se ejecutará en este ejemplo)
+    pthread_attr_destroy(&attr);
 
     // Cerrar el socket del servidor (esto nunca se ejecutará en este ejemplo)
     close(sd);
