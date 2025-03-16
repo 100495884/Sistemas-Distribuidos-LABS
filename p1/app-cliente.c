@@ -1,72 +1,132 @@
+#include "claves.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "claves.h"
-#include "claves_real.h"
+#include <pthread.h>
 
-int main() {
-    int key = 1;
-    char value1[255] = "ValorEjemplo";
+// Función para probar operaciones básicas
+void test_basic_operations() {
+    printf("\n[TEST] Probando operaciones básicas...\n");
+    int key = 10;
+    char value1[256] = "Hola Mundo";
     int N_value2 = 3;
-    double V_value2[] = {1.1, 2.2, 3.3};
-    struct Coord value3 = {10, 20};
+    double V_value2[3] = {1.1, 2.2, 3.3};
+    struct Coord value3 = {4, 5};
+    char recv_value1[256];
+    int recv_N_value2;
+    double recv_V_value2[32];
+    struct Coord recv_value3;
 
-    printf("Iniciando pruebas de la API de tuplas...\n");
+    // Prueba set_value
+    int res = set_value(key, value1, N_value2, V_value2, value3);
+    printf("set_value - Resultado: %d\n", res);
 
-    // Prueba: Crear una clave y asignar valores
-    printf("Probando set_value...\n");
-    int result = set_value(key, value1, N_value2, V_value2, value3);
-    printf("Resultado: %d\n", result);
+    // Prueba get_value
+    res = get_value(key, recv_value1, &recv_N_value2, recv_V_value2, &recv_value3);
+    printf("get_value: %s, %d elementos, (%d, %d)\n", recv_value1, recv_N_value2, recv_value3.x, recv_value3.y);
 
-    // Prueba: Obtener el valor de la clave creada
-    printf("Probando get_value...\n");
-    char received_value1[256];
-    int received_N;
-    double received_V[32];
-    struct Coord received_coord;
-    result = get_value(key, received_value1, &received_N, received_V, &received_coord);
-    printf("Resultado: %d\nValores: %s, %d, (%d,%d)\n", 
-           result, received_value1, received_N, received_coord.x, received_coord.y);
+    // Prueba modify_value
+    res = modify_value(key, "Nuevo Valor", 3, V_value2, value3);
+    printf("modify_value - Resultado: %d\n", res);
 
+    // Prueba exist
+    res = exist(key);
+    res ? printf("Existencia confirmada\n") : printf("Clave no encontrada\n");
 
-    // Prueba: Modificar el valor de la clave
-    char new_value1[] = "NuevoValor";
-    double new_V_value2[] = {4.4, 5.5, 6.6};
-    struct Coord new_value3 = {30, 40};
+    // Prueba delete_key
+    res = delete_key(key);
+    printf("delete_key - Resultado: %d\n", res);
 
-    if (modify_value(key, new_value1, N_value2, new_V_value2, new_value3) == 0) {
-        printf("✅ modify_value exitoso\n");
-    } else {
-        printf("❌ Error en modify_value\n");
+    // Verificar que la clave fue eliminada
+    res = exist(key);
+    res ? printf("Error al eliminar clave\n") : printf("Clave eliminada correctamente\n");
+}
+
+// Función que cada hilo ejecutará para insertar claves
+void *thread_function(void *arg) {
+    int id = *(int *)arg;
+    for (int i = id * 10; i < (id + 1) * 10; i++) {
+        char str[256];
+        snprintf(str, sizeof(str), "Valor_%d", i);
+        double vec[32];
+        for (int j = 0; j < 32; j++) vec[j] = i * 1.1;
+        struct Coord coord = {i, i + 1};
+        set_value(i, str, 32, vec, coord);
+    
+    }
+    return NULL;
+}
+
+// Prueba de concurrencia con múltiples hilos
+void test_concurrency() {
+    printf("\n[TEST] Probando concurrencia con 10 hilos...\n");
+    pthread_t threads[10];
+    int ids[10];
+
+    for (int i = 0; i < 10; i++) {
+        ids[i] = i;
+        pthread_create(&threads[i], NULL, thread_function, &ids[i]);
     }
 
-    // Prueba: Comprobar existencia de la clave
-    if (exist(key) == 1) {
-        printf("✅ La clave %d existe\n", key);
-    } else {
-        printf("❌ Error en exist\n");
+    for (int i = 0; i < 10; i++) {
+        pthread_join(threads[i], NULL);
+        printf("Hilo %d finalizado\n", i);
+    }
+}
+
+// Prueba para insertar muchas claves y verificar si el sistema colapsa
+void test_max_queue_size() {
+    printf("\n[TEST] Probando el límite de la cola de mensajes...\n");
+    struct Coord coord = {0, 0};
+    double vec[2] = {1.0, 2.0};
+
+    for (int i = 0; i < 60; i++) {
+        int res = set_value(i, "Prueba", 2, vec, coord);
+        printf("Insertando clave %d - Resultado: %d\n", i, res);
     }
 
-    // Prueba: Eliminar la clave
-    if (delete_key(key) == 0) {
-        printf("✅ delete_key exitoso\n");
-    } else {
-        printf("❌ Error en delete_key\n");
-    }
+    printf("Borrar todas las claves...\n");
+    int res = destroy();
+    printf("Resultado de destruir todas las claves: %d\n", res);
+}
 
-    // Prueba: Comprobar si la clave sigue existiendo tras la eliminación
-    if (exist(key) == 0) {
-        printf("✅ La clave %d ya no existe tras delete_key\n", key);
-    } else {
-        printf("❌ Error: La clave %d aún existe tras delete_key\n", key);
-    }
+// Prueba de valores extremos en clave, cadena y vectores
+void test_extreme_values() {
+    printf("\n[TEST] Probando valores extremos...\n");
 
-    // Prueba: Eliminar todas las claves
-    if (destroy() == 0) {
-        printf("✅ destroy exitoso\n");
-    } else {
-        printf("❌ Error en destroy\n");
-    }
+    char max_str[256];
+    memset(max_str, 'X', 255);
+    max_str[254] = '\0';
 
+    double max_vec[32];
+    for (int i = 0; i < 32; i++) max_vec[i] = 1.7E+308;
+
+    struct Coord extreme_coord = {2147483647, -2147483648};
+
+    int res = set_value(999, max_str, 32, max_vec, extreme_coord);
+    printf("set_value valores extremos - Resultado: %d\n", res);
+}
+
+// Prueba de entradas inválidas
+void test_invalid_inputs() {
+    printf("\n[TEST] Probando entradas inválidas...\n");
+
+    char over_str[257];
+    memset(over_str, 'Y', 256);
+    over_str[256] = '\0';
+
+    int res = set_value(1001, over_str, 2, (double[2]){1.0, 2.0}, (struct Coord){0, 0});
+    printf("Intentando insertar cadena fuera de rango - Resultado: %d\n", res);
+}
+
+// Función principal que ejecuta todas las pruebas
+int main() {
+    test_basic_operations();
+    test_extreme_values();
+    test_invalid_inputs();
+    test_max_queue_size();
+    test_concurrency();
+
+    printf("\nTodas las pruebas finalizadas.\n");
     return 0;
 }
