@@ -42,6 +42,7 @@ void test_basic_operations() {
     res ? printf("Error al eliminar clave\n") : printf("Clave eliminada correctamente\n");
 }
 
+
 // Función que cada hilo ejecutará para insertar claves
 void *thread_function(void *arg) {
     int id = *(int *)arg;
@@ -126,6 +127,7 @@ int main() {
     test_invalid_inputs();
     test_max_queue_size();
     test_concurrency();
+
 
     printf("\nTodas las pruebas finalizadas.\n");
     return 0;

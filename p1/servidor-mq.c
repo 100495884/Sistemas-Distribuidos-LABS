@@ -67,7 +67,7 @@ int main() {
     mqd_t mq_server;
     struct mq_attr attr = {
         .mq_flags = 0,
-        .mq_maxmsg = 100,
+        .mq_maxmsg = 10,
         .mq_msgsize = MAX_MSG_SIZE,
         .mq_curmsgs = 0
     };
