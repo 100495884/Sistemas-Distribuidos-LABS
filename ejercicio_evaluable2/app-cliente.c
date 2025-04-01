@@ -3,11 +3,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <time.h>
+#include <stdarg.h>
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;      // Mutex para proteger el acceso a la base de datos
+pthread_mutex_t print_mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex para proteger la salida por pantalla
+
+// Función auxiliar para impresión segura (mutex)
+void safe_printf(const char *format, ...) {
+    va_list args;
+    pthread_mutex_lock(&print_mutex);
+    va_start(args, format);
+    vprintf(format, args);
+    va_end(args);
+    pthread_mutex_unlock(&print_mutex);
+}
 
 // Función para probar operaciones básicas
 void test_basic_operations() {
-    printf("\n[TEST] Probando operaciones básicas...\n");
-    int key = 10;
+    int base_key = (getpid() * time(NULL)) % 1000000;
+    int key = base_key;  
     char value1[256] = "Hola Mundo";
     int N_value2 = 3;
     double V_value2[3] = {1.1, 2.2, 3.3};
@@ -17,48 +33,46 @@ void test_basic_operations() {
     double recv_V_value2[32];
     struct Coord recv_value3;
 
-    // Prueba set_value
+    safe_printf("\n[TEST] Probando operaciones básicas...\n");
+
     int res = set_value(key, value1, N_value2, V_value2, value3);
-    printf("set_value - Resultado: %d\n", res);
+    safe_printf("set_value (key = %d) - Resultado: %d\n", key, res);
 
-    // Prueba get_value
     res = get_value(key, recv_value1, &recv_N_value2, recv_V_value2, &recv_value3);
-    printf("get_value: %s, %d elementos, (%d, %d)\n", recv_value1, recv_N_value2, recv_value3.x, recv_value3.y);
+    safe_printf("get_value (key = %d): %s, %d elementos, (%d, %d)\n", key, recv_value1, recv_N_value2, recv_value3.x, recv_value3.y);
 
-    // Prueba modify_value
     res = modify_value(key, "Nuevo Valor", 3, V_value2, value3);
-    printf("modify_value - Resultado: %d\n", res);
+    safe_printf("modify_value (key = %d) - Resultado: %d\n", key, res);
 
-    // Prueba exist
     res = exist(key);
-    res ? printf("Existencia confirmada\n") : printf("Clave no encontrada\n");
+    res ? safe_printf("Existencia confirmada para key %d\n", key) : safe_printf("Clave %d no encontrada\n", key);
 
-    // Prueba delete_key
     res = delete_key(key);
-    printf("delete_key - Resultado: %d\n", res);
+    safe_printf("delete_key (key = %d) - Resultado: %d\n", key, res);
 
-    // Verificar que la clave fue eliminada
     res = exist(key);
-    res ? printf("Error al eliminar clave\n") : printf("Clave eliminada correctamente\n");
+    res ? safe_printf("Error al eliminar clave %d\n", key) : safe_printf("Clave %d eliminada correctamente\n", key);
 }
-
 
 // Función que cada hilo ejecutará para insertar claves
 void *thread_function(void *arg) {
     int id = *(int *)arg;
-    for (int i = id * 10; i < (id + 1) * 10; i++) {
+    int base_key = (getpid() * time(NULL)) % 1000000; // Generar clave única por cliente
+    for (int i = base_key + id * 10; i < base_key + (id + 1) * 10; i++) {
         char str[256];
         snprintf(str, sizeof(str), "Valor_%d", i);
         double vec[32];
-        for (int j = 0; j < 32; j++) vec[j] = i * 1.1;
+        for (int j = 0; j < 32; j++) 
+            vec[j] = i * 1.1;
         struct Coord coord = {i, i + 1};
         set_value(i, str, 32, vec, coord);
     }
+    safe_printf("Hilo %d finalizado\n", id);
     return NULL;
 }
 
 void test_concurrency() {
-    printf("\n[TEST] Probando concurrencia con 10 hilos...\n");
+    safe_printf("\n[TEST] Probando concurrencia con 10 hilos...\n");
     pthread_t threads[10];
     int ids[10];
 
@@ -69,67 +83,81 @@ void test_concurrency() {
             return;
         }
     }
-
     for (int i = 0; i < 10; i++) {
         pthread_join(threads[i], NULL);
-        printf("Hilo %d finalizado\n", i);
     }
 }
 
-// Prueba para insertar muchas claves y verificar si el sistema colapsa
-void test_max_queue_size() {
-    printf("\n[TEST] Probando el límite de la cola de mensajes...\n");
+void test_limit_request() {
+    safe_printf("\n[TEST] Probando el límite de requests...\n");
+
+    // Limpiar la base de datos antes de comenzar para evitar duplicados
+    destroy();
+
     struct Coord coord = {0, 0};
     double vec[2] = {1.0, 2.0};
+    int base_key = ((getpid() * (time(NULL) + 1)) % 1000000);
 
-    for (int i = 0; i < 60; i++) {
-        int res = set_value(i, "Prueba", 2, vec, coord);
-        printf("Insertando clave %d - Resultado: %d\n", i, res);
+    for (int i = 0; i < 100; i++) {
+        int res = set_value(base_key + i, "Prueba", 2, vec, coord);
+        safe_printf("Insertando request con clave %d - Resultado: %d\n", base_key + i, res);
     }
 
-    printf("Borrar todas las claves...\n");
+    safe_printf("Borrando todas las tuplas...\n");
+    pthread_mutex_lock(&mutex);
     int res = destroy();
-    printf("Resultado de destruir todas las claves: %d\n", res);
+    pthread_mutex_unlock(&mutex);
+    safe_printf("Resultado de destruir todas las tuplas: %d\n", res);
 }
 
-// Prueba de valores extremos en clave, cadena y vectores
 void test_extreme_values() {
-    printf("\n[TEST] Probando valores extremos...\n");
+    safe_printf("\n[TEST] Probando valores extremos...\n");
 
     char max_str[256];
     memset(max_str, 'X', 255);
     max_str[254] = '\0';
+    int base_key = (getpid() * time(NULL)) % 1000000;
 
     double max_vec[32];
-    for (int i = 0; i < 32; i++) max_vec[i] = 1.7E+308;
+    // Ajustamos el valor máximo a 1e+308 para evitar problemas en el formateo
+    for (int i = 0; i < 32; i++) 
+        max_vec[i] = 1e+308;
 
     struct Coord extreme_coord = {2147483647, -2147483648};
 
-    int res = set_value(999, max_str, 32, max_vec, extreme_coord);
-    printf("set_value valores extremos - Resultado: %d\n", res);
+    int res = set_value(base_key, max_str, 32, max_vec, extreme_coord);
+    safe_printf("set_value valores extremos - Resultado: %d\n", res);
 }
 
-// Prueba de entradas inválidas
 void test_invalid_inputs() {
-    printf("\n[TEST] Probando entradas inválidas...\n");
+    safe_printf("\n[TEST] Probando entradas inválidas...\n");
 
     char over_str[257];
     memset(over_str, 'Y', 256);
     over_str[256] = '\0';
+    int base_key = (getpid() * time(NULL)) % 1000000;
 
-    int res = set_value(1001, over_str, 2, (double[2]){1.0, 2.0}, (struct Coord){0, 0});
-    printf("Intentando insertar cadena fuera de rango - Resultado: %d\n", res);
+    int res = set_value(base_key, over_str, 2, (double[2]){1.0, 2.0}, (struct Coord){0, 0});
+    safe_printf("Intentando insertar cadena fuera de rango - Resultado: %d\n", res);
 }
 
-// Función principal que ejecuta todas las pruebas
 int main() {
+    // Definir variables de entorno para IP y puerto (se puede modificar según convenga)
+    if (setenv("IP_TUPLAS", "127.0.0.1", 1) != 0 || setenv("PORT_TUPLAS", "8080", 1) != 0) {
+        perror("Error al definir variables de entorno");
+        exit(EXIT_FAILURE);
+    }
     test_basic_operations();
+    test_concurrency();
+    test_limit_request();
     test_extreme_values();
     test_invalid_inputs();
-    test_max_queue_size();
-    test_concurrency();
 
+    safe_printf("\n[TEST] Todas las pruebas realizadas.\n");
+    safe_printf("\nTodas las pruebas finalizadas.\n");
+    safe_printf("Presione ENTER para finalizar...\n");
+    fflush(stdout);
+    getchar();
 
-    printf("\nTodas las pruebas finalizadas.\n");
     return 0;
 }
