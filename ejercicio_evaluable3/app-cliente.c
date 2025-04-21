@@ -1,5 +1,6 @@
 // Incluye el archivo de cabecera "claves.h" que probablemente contiene las definiciones de las funciones utilizadas en este archivo
 #include "claves.h"
+#include "claves_api.h" // Incluye el archivo de cabecera "claves_api.h" que contiene las definiciones de las funciones API
 
 // Incluye las bibliotecas estándar necesarias para el programa
 #include <stdio.h>
