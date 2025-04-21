@@ -1,3 +1,4 @@
+// Servidor RPC para el ejercicio evaluable 3
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,7 +22,7 @@ int *set_value_1_svc(Tupla *t, struct svc_req *req) {
 TuplaRet *get_value_1_svc(int *key, struct svc_req *req) {
     static TuplaRet ret;
     static double vcopy[MAX_VEC]; // Almacén estático para el vector devuelto
-    char value1[256];
+    static char value1[256];
     int N_value2;
     struct Coord coord;
 
