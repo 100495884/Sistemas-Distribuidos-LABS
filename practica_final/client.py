@@ -3,6 +3,7 @@ import argparse
 from enum import Enum
 import threading
 import os
+import requests
 
 class client:
     class RC(Enum):
@@ -17,12 +18,23 @@ class client:
     _listen_thread = None # Hilo para escuchar conexiones entrantes
 
     @staticmethod
+    def _get_timestamp():
+        """Obtiene el timestamp del servicio web"""
+        try:
+            response = requests.get('http://localhost:5000/timestamp')
+            return response.text
+        except Exception as e:
+            print(f"Error obteniendo timestamp: {e}")
+            return "00/00/0000 00:00:00"  # Valor por defecto en caso de error
+
+    @staticmethod
     def _send_command_to_server(command, *args):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((client._server, client._port))
+                timestamp = client._get_timestamp()
                 # Enviar comando y argumentos según el protocolo
-                message = command + '\0' + '\0'.join(args) + '\0'
+                message = f"{command}\0{timestamp}\0" + '\0'.join(args) + '\0'
                 s.sendall(message.encode())
                 # Leer respuesta del servidor
                 response = s.recv(1)
@@ -30,6 +42,7 @@ class client:
         except Exception as e:
             print(f"Error al comunicar con el servidor: {e}")
             return client.RC.ERROR.value
+
 
 
     @staticmethod
@@ -64,14 +77,58 @@ class client:
     
 
     @staticmethod
-    def _listen_for_peers(port):
+    def _listen_for_peers(port, stop_event):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)  # Para poder verificar el stop_event periódicamente
             s.bind(('0.0.0.0', port))
             s.listen()
-            while True:
-                conn, addr = s.accept()
-                # Aquí manejamos la solicitud de descarga (GET_FILE)
-                conn.close()
+            
+            while not stop_event.is_set():
+                try:
+                    conn, addr = s.accept()
+                    try:
+                        # Leer comando GET_FILE
+                        data = b''
+                        while True:
+                            chunk = conn.recv(1)
+                            if chunk == b'\0':
+                                break
+                            data += chunk
+                        command = data.decode()
+                        
+                        if command == "GET_FILE":
+                            # Leer nombre del archivo solicitado
+                            data = b''
+                            while True:
+                                chunk = conn.recv(1)
+                                if chunk == b'\0':
+                                    break
+                                data += chunk
+                            file_name = data.decode()
+                            
+                            # Verificar si el archivo existe
+                            if os.path.exists(file_name):
+                                conn.send(bytes([0]))  # Código OK
+                                
+                                # Enviar tamaño del archivo
+                                file_size = os.path.getsize(file_name)
+                                conn.send(str(file_size).encode() + b'\0')
+                                
+                                # Enviar contenido del archivo
+                                with open(file_name, 'rb') as f:
+                                    while True:
+                                        chunk = f.read(4096)
+                                        if not chunk:
+                                            break
+                                        conn.sendall(chunk)
+                            else:
+                                conn.send(bytes([1]))  # Archivo no existe
+                    finally:
+                        conn.close()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"Error en hilo de escucha: {e}")
 
     @staticmethod
     def connect(user):
@@ -82,7 +139,12 @@ class client:
         s.close()
 
         # Iniciar hilo para escuchar conexiones P2P
-        client._listen_thread = threading.Thread(target=client._listen_for_peers, args=(port,))
+        client._listen_stop_event = threading.Event()
+        client._listen_thread = threading.Thread(
+            target=client._listen_for_peers, 
+            args=(port, client._listen_stop_event)
+        )
+        client._listen_thread.daemon = True  # Para que termine con el programa
         client._listen_thread.start()
 
         # Enviar comando CONNECT al servidor
@@ -112,7 +174,10 @@ class client:
         if rc == 0:
             print("DISCONNECT OK")
             client._current_user = None
-            # Detener el hilo de escucha (implementación simplificada)
+            # Detener el hilo de escucha
+            if client._listen_thread:
+                client._listen_stop_event.set()
+                client._listen_thread.join()
             return client.RC.OK
         elif rc == 1:
             print("DISCONNECT FAIL, USER DOES NOT EXIST")
@@ -129,6 +194,9 @@ class client:
     @staticmethod
     def publish(fileName, description):
         rc = client._send_command_to_server("PUBLISH", client._current_user, fileName, description)
+        if ' ' in fileName:
+            print("PUBLISH FAIL: File name cannot contain spaces")
+            return client.RC.ERROR
         if rc == 0:
             print("PUBLISH OK")
             return client.RC.OK
@@ -205,8 +273,6 @@ class client:
                     num_users = int(data.decode())
                     print(f"LIST_USERS OK ({num_users} users connected)")
 
-                    client._connected_users_info = {}  # Inicializar diccionario para almacenar información de usuarios conectados
-
                     # Recibir lista de usuarios (nombre, IP, puerto)
                     for _ in range(num_users):
                         # Leer nombre
@@ -237,7 +303,6 @@ class client:
                         user_port = data.decode()
                         
                         print(f"- {user_name} ({user_ip}:{user_port})")
-                        client._connected_users_info[user_name] = (user_ip, int(user_port))
 
                     return client.RC.OK
                 elif rc == 1:
@@ -305,144 +370,133 @@ class client:
         except Exception as e:
             print(f"LIST_CONTENT FAIL: {e}")
             return client.RC.ERROR
-
-
+        
 
 
     @staticmethod
-    def getfile(user, remote_FileName, local_FileName):
-        from os.path import basename  # Necesario para extraer solo el nombre del archivo
-
+    def getfile(remote_user, remote_file, local_file):
         try:
-            # 1. Verificar que el archivo esté publicado por el usuario remoto
-            s_check = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s_check.connect((client._server, client._port))
-            client.send_string(s_check, "LIST_CONTENT")
-            client.send_string(s_check, client._connected_user)
-            client.send_string(s_check, user)
-            
-            response = s_check.recv(1)
-            if not response or response[0] != 0:
-                print("GET_FILE FAIL, COULD NOT VERIFY FILE")
-                s_check.close()
-                return client.RC.ERROR
-
-            num_files = client.read_string(s_check)
-            if num_files is None:
-                print("GET_FILE FAIL, COULD NOT VERIFY FILE")
-                s_check.close()
-                return client.RC.ERROR
-
-            num_files = int(num_files.strip())
-            found = False
-            for _ in range(num_files):
-                filename = client.read_string(s_check)
-
-                # ⚠ CORRECCIÓN: solo comparamos el nombre base, no el path completo
-                if filename == basename(remote_FileName):
-                    found = True
-                    break
-
-            s_check.close()
-            if not found:
-                print("GET_FILE FAIL, FILE NOT PUBLISHED")
-                return client.RC.USER_ERROR
-
-            # 2. Obtener IP y puerto del usuario remoto
-            user_info = None
-            s_list = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s_list.connect((client._server, client._port))
-            client.send_string(s_list, "LIST_USERS")
-            client.send_string(s_list, client._connected_user)
-            
-            response = s_list.recv(1)
-            if not response or response[0] != 0:
-                print("GET_FILE FAIL")
-                s_list.close()
-                return client.RC.ERROR
-            
-            num_users = client.read_string(s_list)
-            if num_users is None:
-                print("GET_FILE FAIL")
-                s_list.close()
-                return client.RC.ERROR
-            
-            found = False
-            for _ in range(int(num_users)):
-                username = client.read_string(s_list)
-                ip = client.read_string(s_list)
-                port = client.read_string(s_list)
-                if username == user:
-                    user_info = (ip, int(port))
-                    found = True
-                    break
-
-            s_list.close()
-            if not found:
-                print("GET_FILE FAIL, USER NOT CONNECTED")
-                return client.RC.USER_ERROR
-
-            # 3. Conectar al cliente remoto y solicitar el archivo
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.connect((user_info[0], user_info[1]))
-
-            # Enviamos la ruta completa, como pide el enunciado
-            client.send_string(s, "GET_FILE")
-            client.send_string(s, remote_FileName)
-
-            response = s.recv(1)
-            if not response:
-                print("GET_FILE FAIL")
-                return client.RC.ERROR
-
-            response_code = response[0]
-            if response_code == 0:
-                size_str = client.read_string(s)
-                if size_str is None:
-                    print("GET_FILE FAIL")
+            # 1. Obtener información del usuario remoto
+            users = []
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((client._server, client._port))
+                message = f"LIST_USERS\0{client._current_user}\0"
+                s.sendall(message.encode())
+                
+                rc = int.from_bytes(s.recv(1), byteorder='little')
+                if rc != 0:
+                    print("GET_FILE FAIL: No se pudo obtener lista de usuarios")
                     return client.RC.ERROR
-                size = int(size_str)
-
-                received = 0
-                with open(local_FileName, 'wb') as f:
-                    while received < size:
-                        data = s.recv(min(4096, size - received))
-                        if not data:
+                
+                # Leer número de usuarios
+                data = b''
+                while True:
+                    chunk = s.recv(1)
+                    if chunk == b'\0':
+                        break
+                    data += chunk
+                num_users = int(data.decode())
+                
+                # Buscar el usuario específico
+                remote_ip = None
+                remote_port = None
+                for _ in range(num_users):
+                    # Leer nombre
+                    data = b''
+                    while True:
+                        chunk = s.recv(1)
+                        if chunk == b'\0':
                             break
-                        f.write(data)
-                        received += len(data)
-
-                if received == size:
-                    print("GET_FILE OK")
-                    return client.RC.OK
+                        data += chunk
+                    name = data.decode()
+                    
+                    # Leer IP
+                    data = b''
+                    while True:
+                        chunk = s.recv(1)
+                        if chunk == b'\0':
+                            break
+                        data += chunk
+                    ip = data.decode()
+                    
+                    # Leer puerto
+                    data = b''
+                    while True:
+                        chunk = s.recv(1)
+                        if chunk == b'\0':
+                            break
+                        data += chunk
+                    port = data.decode()
+                    
+                    if name == remote_user:
+                        remote_ip = ip
+                        remote_port = int(port)
+                        break
+            
+            if not remote_ip or not remote_port:
+                print("GET_FILE FAIL: Usuario remoto no encontrado o no conectado")
+                return client.RC.USER_ERROR
+            
+            # 2. Conectar directamente al peer y solicitar archivo
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((remote_ip, remote_port))
+                
+                # Enviar comando GET_FILE y nombre de archivo
+                message = f"GET_FILE\0{remote_file}\0"
+                s.sendall(message.encode())
+                
+                # Recibir respuesta (1 byte)
+                rc = int.from_bytes(s.recv(1), byteorder='little')
+                
+                if rc == 0:
+                    # Recibir tamaño del archivo
+                    data = b''
+                    while True:
+                        chunk = s.recv(1)
+                        if chunk == b'\0':
+                            break
+                        data += chunk
+                    file_size = int(data.decode())
+                    
+                    # Recibir contenido del archivo
+                    received = 0
+                    with open(local_file, 'wb') as f:
+                        while received < file_size:
+                            chunk = s.recv(min(4096, file_size - received))
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            received += len(chunk)
+                    
+                    if received == file_size:
+                        print("GET_FILE OK")
+                        return client.RC.OK
+                    else:
+                        os.remove(local_file)
+                        print("GET_FILE FAIL: Transferencia incompleta")
+                        return client.RC.ERROR
+                elif rc == 1:
+                    print("GET_FILE FAIL, FILE NOT EXIST")
+                    return client.RC.USER_ERROR
                 else:
-                    if os.path.exists(local_FileName):
-                        os.remove(local_FileName)
                     print("GET_FILE FAIL")
                     return client.RC.ERROR
-
-            elif response_code == 1:
-                print("GET_FILE FAIL, FILE NOT EXIST")
-                return client.RC.USER_ERROR
-            else:
-                print("GET_FILE FAIL")
-                return client.RC.ERROR
-
+                    
         except Exception as e:
-            if 'local_FileName' in locals() and os.path.exists(local_FileName):
-                os.remove(local_FileName)
-            print("GET_FILE FAIL")
+            print(f"GET_FILE FAIL: {e}")
+            if os.path.exists(local_file):
+                os.remove(local_file)
             return client.RC.ERROR
-        finally:
-            if 's' in locals(): s.close()
-            if 's_check' in locals(): s_check.close()
-            if 's_list' in locals(): s_list.close()
+        
+
+
+
+
+    # *
 
     # **
 
     # * @brief Command interpreter for the client. It calls the protocol functions.
-
-
 
     @staticmethod
 
@@ -581,7 +635,8 @@ class client:
                     elif(line[0]=="QUIT") :
 
                         if (len(line) == 1) :
-
+                            if client._current_user:
+                                client.disconnect(client._current_user)
                             break
 
                         else :
@@ -595,6 +650,9 @@ class client:
             except Exception as e:
 
                 print("Exception: " + str(e))
+
+
+    
 
 
 

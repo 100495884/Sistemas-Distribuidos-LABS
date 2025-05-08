@@ -14,15 +14,6 @@
 #define MAX_CONTENT_PER_USER 100
 #define MAX_CONNECTED_USERS 50
 
-
-// Colores ANSI para la terminal
-#define ANSI_COLOR_RED     "\x1b[31m"
-#define ANSI_COLOR_GREEN   "\x1b[32m"
-#define ANSI_COLOR_YELLOW  "\x1b[33m"
-#define ANSI_COLOR_BLUE    "\x1b[34m"
-#define ANSI_COLOR_RESET   "\x1b[0m"
-
-
 // Estructuras para almacenar usuarios y archivos
 typedef struct {
     char name[BUFFER_SIZE];
@@ -43,20 +34,6 @@ int user_count = 0;
 int file_count = 0;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Para evitar condiciones de carrera
 
-
-// Función para imprimir logs con timestamp
-void server_log(const char* operation, const char* username, int success, const char* details) {
-    time_t now;
-    time(&now);
-    char timestamp[20];
-    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", localtime(&now));
-    
-    const char* color = success ? "\033[32m" : "\033[31m"; // Verde para éxito, rojo para fallo
-    const char* status = success ? "SUCCESS" : "FAILED";
-    
-    printf("[%s] \033[34m%-15s\033[0m User: \033[33m%-10s\033[0m Status: %s%s\033[0m | %s\n",
-           timestamp, operation, username, color, status, details);
-}
 
 ssize_t readLine(int fd, void *buffer, size_t n)
 {
@@ -147,20 +124,17 @@ void handle_register(int client_socket, char *user_name) {
     pthread_mutex_lock(&mutex);
     int rc;
     if (find_user(user_name) != -1) {
-        rc = 1;
-        server_log("REGISTER", user_name, 0, "Username already exists");
+        rc = 1; // Usuario ya existe
     } else if (user_count >= MAX_USERS) {
-        rc = 2;
-        server_log("REGISTER", user_name, 0, "Max users reached");
+        rc = 2; // Error genérico
     } else {
         strcpy(users[user_count].name, user_name);
         users[user_count].is_connected = 0;
         user_count++;
-        rc = 0;
-        server_log("REGISTER", user_name, 1, "New user registered");
+        rc = 0; // Éxito
     }
     pthread_mutex_unlock(&mutex);
-    send(client_socket, &rc, 1, 0);
+    send(client_socket, &rc, 1, 0); // Envía 1 byte de respuesta
 }
 
 void handle_unregister(int client_socket, char *user_name) {
@@ -169,34 +143,25 @@ void handle_unregister(int client_socket, char *user_name) {
     int user_idx = find_user(user_name);
     
     if (user_idx == -1) {
-        rc = 1;
-        server_log("UNREGISTER", user_name, 0, "User not found");
+        rc = 1; // Usuario no existe
     } else {
-        // Eliminar archivos del usuario
-        int files_removed = 0;
+        // Eliminar todos sus archivos primero
         for (int i = 0; i < file_count; ) {
             if (strcmp(files[i].user, user_name) == 0) {
                 memmove(&files[i], &files[i+1], (file_count - i - 1) * sizeof(File));
                 file_count--;
-                files_removed++;
             } else {
                 i++;
             }
         }
-        
         // Eliminar usuario
         memmove(&users[user_idx], &users[user_idx+1], (user_count - user_idx - 1) * sizeof(User));
         user_count--;
-        rc = 0;
-        
-        char details[100];
-        snprintf(details, sizeof(details), "Removed user and %d files", files_removed);
-        server_log("UNREGISTER", user_name, 1, details);
+        rc = 0; // Éxito
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
 }
-
 
 void handle_connect(int client_socket, char *user_name, char *port_str) {
     pthread_mutex_lock(&mutex);
@@ -205,12 +170,11 @@ void handle_connect(int client_socket, char *user_name, char *port_str) {
     int port = atoi(port_str);
     
     if (user_idx == -1) {
-        rc = 1;
-        server_log("CONNECT", user_name, 0, "User not registered");
+        rc = 1; // Usuario no existe
     } else if (users[user_idx].is_connected) {
-        rc = 2;
-        server_log("CONNECT", user_name, 0, "User already connected");
+        rc = 2; // Ya conectado
     } else {
+        // Obtener IP del cliente (simplificado)
         struct sockaddr_in addr;
         socklen_t len = sizeof(addr);
         getpeername(client_socket, (struct sockaddr*)&addr, &len);
@@ -219,11 +183,7 @@ void handle_connect(int client_socket, char *user_name, char *port_str) {
         strcpy(users[user_idx].ip, ip);
         users[user_idx].port = port;
         users[user_idx].is_connected = 1;
-        rc = 0;
-        
-        char details[50];
-        snprintf(details, sizeof(details), "IP: %s Port: %d", ip, port);
-        server_log("CONNECT", user_name, 1, details);
+        rc = 0; // Éxito
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
@@ -236,15 +196,12 @@ void handle_disconnect(int client_socket, char *user_name) {
     int user_idx = find_user(user_name);
     
     if (user_idx == -1) {
-        rc = 1;
-        server_log("DISCONNECT", user_name, 0, "User not registered");
+        rc = 1; // Usuario no existe
     } else if (!users[user_idx].is_connected) {
-        rc = 2;
-        server_log("DISCONNECT", user_name, 0, "User not connected");
+        rc = 2; // No conectado
     } else {
         users[user_idx].is_connected = 0;
-        rc = 0;
-        server_log("DISCONNECT", user_name, 1, "Successfully disconnected");
+        rc = 0; // Éxito
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
@@ -255,34 +212,25 @@ void handle_publish(int client_socket, char *user_name, char *file_name, char *d
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
-    
     if (user_idx == -1) {
-        rc = 1;
-        server_log("PUBLISH", user_name, 0, "User not registered");
+        rc = 1; // Usuario no existe
     } else if (!users[user_idx].is_connected) {
-        rc = 2;
-        server_log("PUBLISH", user_name, 0, "User not connected");
+        rc = 2; // Usuario no conectado
     } else if (find_file(user_name, file_name) != -1) {
-        rc = 3;
-        server_log("PUBLISH", user_name, 0, "File already published");
+        rc = 3; // Archivo ya publicado
     } else if (file_count >= MAX_FILES) {
-        rc = 4;
-        server_log("PUBLISH", user_name, 0, "Max files reached");
+        rc = 4; // Error genérico
     } else {
         strcpy(files[file_count].user, user_name);
         strcpy(files[file_count].file, file_name);
         strcpy(files[file_count].description, description);
         file_count++;
-        rc = 0;
-        
-        char details[256];
-        snprintf(details, sizeof(details), "File: %s | Desc: %.20s%s", 
-                file_name, description, strlen(description) > 20 ? "..." : "");
-        server_log("PUBLISH", user_name, 1, details);
+        rc = 0; // Éxito
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
 }
+
 
 void handle_delete(int client_socket, char *user_name, char *file_name) {
     pthread_mutex_lock(&mutex);
@@ -290,27 +238,24 @@ void handle_delete(int client_socket, char *user_name, char *file_name) {
     int user_idx = find_user(user_name);
     
     if (user_idx == -1) {
-        rc = 1;
-        server_log("DELETE", user_name, 0, "User not registered");
+        rc = 1; // Usuario no existe
     } else if (!users[user_idx].is_connected) {
-        rc = 2;
-        server_log("DELETE", user_name, 0, "User not connected");
+        rc = 2; // No conectado
     } else {
         int file_idx = find_file(user_name, file_name);
         if (file_idx == -1) {
-            rc = 3;
-            server_log("DELETE", user_name, 0, "File not found");
+            rc = 3; // Archivo no publicado
         } else {
             // Eliminar archivo
             memmove(&files[file_idx], &files[file_idx+1], (file_count - file_idx - 1) * sizeof(File));
             file_count--;
-            rc = 0;
-            server_log("DELETE", user_name, 1, file_name);
+            rc = 0; // Éxito
         }
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
 }
+
 
 void handle_list_users(int client_socket, char *user_name) {
     pthread_mutex_lock(&mutex);
@@ -318,15 +263,13 @@ void handle_list_users(int client_socket, char *user_name) {
     int user_idx = find_user(user_name);
     
     if (user_idx == -1) {
-        rc = 1;
-        server_log("LIST_USERS", user_name, 0, "User not registered");
+        rc = 1; // Usuario no existe
         send(client_socket, &rc, 1, 0);
     } else if (!users[user_idx].is_connected) {
-        rc = 2;
-        server_log("LIST_USERS", user_name, 0, "User not connected");
+        rc = 2; // No conectado
         send(client_socket, &rc, 1, 0);
     } else {
-        rc = 0;
+        rc = 0; // Éxito
         send(client_socket, &rc, 1, 0);
         
         // Contar usuarios conectados
@@ -351,33 +294,31 @@ void handle_list_users(int client_socket, char *user_name) {
                 sendMessage(client_socket, port_str, strlen(port_str)+1);
             }
         }
-        
-        char details[50];
-        snprintf(details, sizeof(details), "Returned %d connected users", connected_count);
-        server_log("LIST_USERS", user_name, 1, details);
     }
     pthread_mutex_unlock(&mutex);
 }
 
-void handle_list_content(int client_socket, char *requesting_user, char *target_user) {
+void handle_listcontent(int client_socket, char *requesting_user, char *target_user) {
     pthread_mutex_lock(&mutex);
     int rc;
-    int req_user_idx = find_user(requesting_user);
     
+    // Verificar usuario que hace la solicitud
+    int req_user_idx = find_user(requesting_user);
     if (req_user_idx == -1) {
-        rc = 1;
-        server_log("LIST_CONTENT", requesting_user, 0, "Requester not registered");
+        rc = 1; // Usuario no existe
         send(client_socket, &rc, 1, 0);
-    } else if (!users[req_user_idx].is_connected) {
-        rc = 2;
-        server_log("LIST_CONTENT", requesting_user, 0, "Requester not connected");
+    } 
+    else if (!users[req_user_idx].is_connected) {
+        rc = 2; // Usuario no conectado
         send(client_socket, &rc, 1, 0);
-    } else if (find_user(target_user) == -1) {
-        rc = 3;
-        server_log("LIST_CONTENT", requesting_user, 0, "Target user not found");
+    } 
+    // Verificar usuario objetivo
+    else if (find_user(target_user) == -1) {
+        rc = 3; // Usuario remoto no existe
         send(client_socket, &rc, 1, 0);
-    } else {
-        rc = 0;
+    } 
+    else {
+        rc = 0; // Éxito
         send(client_socket, &rc, 1, 0);
         
         // Contar archivos del usuario objetivo
@@ -393,19 +334,16 @@ void handle_list_content(int client_socket, char *requesting_user, char *target_
         snprintf(count_str, BUFFER_SIZE, "%d", file_count_user);
         sendMessage(client_socket, count_str, strlen(count_str)+1);
         
-        // Enviar lista de archivos
+        // Enviar lista de archivos (solo nombres)
         for (int i = 0; i < file_count; i++) {
             if (strcmp(files[i].user, target_user) == 0) {
                 sendMessage(client_socket, files[i].file, strlen(files[i].file)+1);
             }
         }
-        
-        char details[100];
-        snprintf(details, sizeof(details), "User: %s | Files: %d", target_user, file_count_user);
-        server_log("LIST_CONTENT", requesting_user, 1, details);
     }
     pthread_mutex_unlock(&mutex);
 }
+
 
 void *handle_request(void *arg) {
     int client_socket = *((int *)arg);
@@ -421,14 +359,11 @@ void *handle_request(void *arg) {
         return NULL;
     }
 
-    // Leer marca de tiempo
     if (readLine(client_socket, timestamp, BUFFER_SIZE) <= 0) {
         close(client_socket);
         return NULL;
     }
-
-    // Imprimir la marca de tiempo recibida (para depuración)
-    printf("Operación %s recibida a las %s\n", command, timestamp);
+    
 
     if (strcmp(command, "REGISTER") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
@@ -465,7 +400,7 @@ void *handle_request(void *arg) {
     else if (strcmp(command, "LIST_CONTENT") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // target_user
-        handle_list_content(client_socket, user_name, arg1);
+        handle_listcontent(client_socket, user_name, arg1);
     }
     else {
         // Comando no reconocido
@@ -508,5 +443,4 @@ int main(int argc, char *argv[]) {
     close(server_socket);
     return 0;
 }
-
 
