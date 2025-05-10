@@ -265,9 +265,11 @@ void handle_list_users(int client_socket, char *user_name) {
     if (user_idx == -1) {
         rc = 1; // Usuario no existe
         send(client_socket, &rc, 1, 0);
+        pthread_mutex_unlock(&mutex);
     } else if (!users[user_idx].is_connected) {
         rc = 2; // No conectado
         send(client_socket, &rc, 1, 0);
+        pthread_mutex_unlock(&mutex);
     } else {
         rc = 0; // Éxito
         send(client_socket, &rc, 1, 0);
@@ -307,15 +309,18 @@ void handle_listcontent(int client_socket, char *requesting_user, char *target_u
     if (req_user_idx == -1) {
         rc = 1; // Usuario no existe
         send(client_socket, &rc, 1, 0);
+        pthread_mutex_unlock(&mutex);
     } 
     else if (!users[req_user_idx].is_connected) {
         rc = 2; // Usuario no conectado
         send(client_socket, &rc, 1, 0);
+        pthread_mutex_unlock(&mutex);
     } 
     // Verificar usuario objetivo
     else if (find_user(target_user) == -1) {
         rc = 3; // Usuario remoto no existe
         send(client_socket, &rc, 1, 0);
+        pthread_mutex_unlock(&mutex);
     } 
     else {
         rc = 0; // Éxito

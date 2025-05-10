@@ -219,9 +219,11 @@ class client:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 # Conectar al servidor
                 s.connect((client._server, client._port))
+
+                timestamp = client._get_timestamp()
                 
                 # Enviar comando DELETE, usuario actual y nombre del archivo
-                message = f"DELETE\0{client._current_user}\0{fileName}\0"
+                message = f"DELETE\0{timestamp}\0{client._current_user}\0{fileName}\0"
                 s.sendall(message.encode())
                 
                 # Recibir respuesta del servidor (1 byte)
@@ -256,7 +258,8 @@ class client:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((client._server, client._port))
                 # Enviar comando LIST_USERS y nombre de usuario
-                message = f"LIST_USERS\0{client._current_user}\0"
+                timestamp = client._get_timestamp()
+                message = f"LIST_USERS\0{timestamp}\0{client._current_user}\0"
                 s.sendall(message.encode())
 
                 # Recibir respuesta del servidor (1 byte: código de retorno)
@@ -326,7 +329,10 @@ class client:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((client._server, client._port))
                 # Enviar comando LIST_CONTENT, usuario actual y usuario objetivo
-                message = f"LIST_CONTENT\0{client._current_user}\0{user}\0"
+                timestamp = client._get_timestamp()
+            
+                # Construir y enviar mensaje con el formato correcto:
+                message = f"LIST_CONTENT\0{timestamp}\0{client._current_user}\0{user}\0"
                 s.sendall(message.encode())
 
                 # Recibir respuesta del servidor (1 byte: código de retorno)
@@ -369,7 +375,7 @@ class client:
                     return client.RC.ERROR
         except Exception as e:
             print(f"LIST_CONTENT FAIL: {e}")
-            return client.RC.ERROR
+            return client.RC.ER
         
 
 
