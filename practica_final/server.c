@@ -7,6 +7,9 @@
 #include <netinet/in.h>
 #include <errno.h>
 #include <arpa/inet.h>
+#include "log.h"
+#include <rpc/rpc.h>
+
 
 #define MAX_USERS 100
 #define MAX_FILES 1000
@@ -98,6 +101,26 @@ int sendMessage(int socket, char * buffer, int len)
 		return(0);	/* full length has been sent */
 }
 
+// Función para enviar un log al servidor RPC
+void enviar_log_rpc(const char *usuario, const char *operacion, const char *timestamp) {
+    char *rpc_ip = getenv("LOG_RPC_IP");
+    if (!rpc_ip) return;
+
+    CLIENT *clnt = clnt_create(rpc_ip, LOGPROG, LOGVERS, "udp");
+    if (!clnt) {
+        fprintf(stderr, "No se pudo conectar al servidor RPC en %s\n", rpc_ip);
+        return;
+    }
+
+    LogEntry entrada;
+    entrada.usuario = (char *)usuario;
+    entrada.operacion = (char *)operacion;
+    entrada.timestamp = (char *)timestamp;
+
+    log_event_1(&entrada, clnt);
+    clnt_destroy(clnt);
+}
+
 
 // Función para buscar un usuario por nombre
 int find_user(const char *name) {
@@ -120,7 +143,7 @@ int find_file(const char *user, const char *file) {
 }
 
 
-void handle_register(int client_socket, char *user_name) {
+void handle_register(int client_socket, char *user_name, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     if (find_user(user_name) != -1) {
@@ -135,9 +158,12 @@ void handle_register(int client_socket, char *user_name) {
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0); // Envía 1 byte de respuesta
+    if (rc == 0) {
+        enviar_log_rpc(user_name, "REGISTER", timestamp);
+    }
 }
 
-void handle_unregister(int client_socket, char *user_name) {
+void handle_unregister(int client_socket, char *user_name, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -161,9 +187,12 @@ void handle_unregister(int client_socket, char *user_name) {
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
+    if (rc == 0) {
+        enviar_log_rpc(user_name, "UNREGISTER", timestamp);
+    }
 }
 
-void handle_connect(int client_socket, char *user_name, char *port_str) {
+void handle_connect(int client_socket, char *user_name, char *port_str, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -187,10 +216,13 @@ void handle_connect(int client_socket, char *user_name, char *port_str) {
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
+    if (rc == 0) {
+        enviar_log_rpc(user_name, "CONNECT", timestamp);
+    }
 }
 
 
-void handle_disconnect(int client_socket, char *user_name) {
+void handle_disconnect(int client_socket, char *user_name, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -205,10 +237,13 @@ void handle_disconnect(int client_socket, char *user_name) {
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
+    if (rc == 0) {
+        enviar_log_rpc(user_name, "DISCONNECT", timestamp);
+    }
 }
 
 
-void handle_publish(int client_socket, char *user_name, char *file_name, char *description) {
+void handle_publish(int client_socket, char *user_name, char *file_name, char *description, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -229,10 +264,15 @@ void handle_publish(int client_socket, char *user_name, char *file_name, char *d
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
+    if (rc == 0) {
+        char full_msg[BUFFER_SIZE * 2];
+        snprintf(full_msg, sizeof(full_msg), "PUBLISH %s", file_name);
+        enviar_log_rpc(user_name, full_msg, timestamp);
+    }
 }
 
 
-void handle_delete(int client_socket, char *user_name, char *file_name) {
+void handle_delete(int client_socket, char *user_name, char *file_name, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -254,10 +294,15 @@ void handle_delete(int client_socket, char *user_name, char *file_name) {
     }
     pthread_mutex_unlock(&mutex);
     send(client_socket, &rc, 1, 0);
+    if (rc == 0) {
+        char full_msg[BUFFER_SIZE * 2];
+        snprintf(full_msg, sizeof(full_msg), "DELETE %s", file_name);
+        enviar_log_rpc(user_name, full_msg, timestamp);
+    }
 }
 
 
-void handle_list_users(int client_socket, char *user_name) {
+void handle_list_users(int client_socket, char *user_name, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     int user_idx = find_user(user_name);
@@ -298,9 +343,12 @@ void handle_list_users(int client_socket, char *user_name) {
         }
     }
     pthread_mutex_unlock(&mutex);
+    if (rc == 0) {
+        enviar_log_rpc(user_name, "LIST USERS", timestamp);
+    }
 }
 
-void handle_listcontent(int client_socket, char *requesting_user, char *target_user) {
+void handle_listcontent(int client_socket, char *requesting_user, char *target_user, const char *timestamp) {
     pthread_mutex_lock(&mutex);
     int rc;
     
@@ -347,6 +395,9 @@ void handle_listcontent(int client_socket, char *requesting_user, char *target_u
         }
     }
     pthread_mutex_unlock(&mutex);
+    if (rc == 0) {
+        enviar_log_rpc(requesting_user, "LIST CONTENT", timestamp);
+    }
 }
 
 
@@ -372,40 +423,40 @@ void *handle_request(void *arg) {
 
     if (strcmp(command, "REGISTER") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
-        handle_register(client_socket, user_name);
+        handle_register(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "UNREGISTER") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
-        handle_unregister(client_socket, user_name);
+        handle_unregister(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "CONNECT") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // port
-        handle_connect(client_socket, user_name, arg1);
+        handle_connect(client_socket, user_name, arg1, timestamp);
     }
     else if (strcmp(command, "PUBLISH") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // file_name
         readLine(client_socket, arg2, BUFFER_SIZE); // description
-        handle_publish(client_socket, user_name, arg1, arg2);
+        handle_publish(client_socket, user_name, arg1, arg2, timestamp);
     }
     else if (strcmp(command, "DELETE") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // file_name
-        handle_delete(client_socket, user_name, arg1);
+        handle_delete(client_socket, user_name, arg1, timestamp);
     }
     else if (strcmp(command, "LIST_USERS") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
-        handle_list_users(client_socket, user_name);
+        handle_list_users(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "DISCONNECT") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
-        handle_disconnect(client_socket, user_name);
+        handle_disconnect(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "LIST_CONTENT") == 0) {
         readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // target_user
-        handle_listcontent(client_socket, user_name, arg1);
+        handle_listcontent(client_socket, user_name, arg1, timestamp);
     }
     else {
         // Comando no reconocido
