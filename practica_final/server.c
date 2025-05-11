@@ -419,56 +419,72 @@ void *handle_request(void *arg) {
         close(client_socket);
         return NULL;
     }
-    
+
+    // Leer nombre de usuario (común a todas)
+    if (readLine(client_socket, user_name, BUFFER_SIZE) <= 0) {
+        close(client_socket);
+        return NULL;
+    }
+
+    printf("s > OPERATION %s FROM %s\n", command, user_name);
 
     if (strcmp(command, "REGISTER") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         handle_register(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "UNREGISTER") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         handle_unregister(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "CONNECT") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // port
         handle_connect(client_socket, user_name, arg1, timestamp);
     }
     else if (strcmp(command, "PUBLISH") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // file_name
         readLine(client_socket, arg2, BUFFER_SIZE); // description
         handle_publish(client_socket, user_name, arg1, arg2, timestamp);
     }
     else if (strcmp(command, "DELETE") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // file_name
         handle_delete(client_socket, user_name, arg1, timestamp);
     }
     else if (strcmp(command, "LIST_USERS") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         handle_list_users(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "DISCONNECT") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         handle_disconnect(client_socket, user_name, timestamp);
     }
     else if (strcmp(command, "LIST_CONTENT") == 0) {
-        readLine(client_socket, user_name, BUFFER_SIZE);
         readLine(client_socket, arg1, BUFFER_SIZE); // target_user
         handle_listcontent(client_socket, user_name, arg1, timestamp);
     }
     else {
-        // Comando no reconocido
         char error_msg[] = "ERROR: Unknown command";
+        printf("s > unknown command: %s\n", command);
         send(client_socket, error_msg, strlen(error_msg)+1, 0);
     }
+
     close(client_socket);
     return NULL;
 }
+
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <port>\n", argv[0]);
+    int opt;
+    int port = -1;
+
+    // Parsear argumentos con -p <puerto>
+    while ((opt = getopt(argc, argv, "p:")) != -1) {
+        switch (opt) {
+            case 'p':
+                port = atoi(optarg);
+                break;
+            default:
+                fprintf(stderr, "Uso: %s -p <puerto>\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+
+    if (port <= 0) {
+        fprintf(stderr, "Debes indicar un puerto válido con -p <puerto>\n");
         exit(EXIT_FAILURE);
     }
 
@@ -480,13 +496,18 @@ int main(int argc, char *argv[]) {
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(atoi(argv[1]));
+    server_addr.sin_port = htons(port);
 
     // Enlazar y escuchar
     bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr));
     listen(server_socket, 5);
 
-    printf("Server listening on port %s\n", argv[1]);
+    // Obtener IP local y puerto
+    socklen_t len = sizeof(server_addr);
+    getsockname(server_socket, (struct sockaddr *)&server_addr, &len);
+    char *local_ip = inet_ntoa(server_addr.sin_addr);
+    int local_port = ntohs(server_addr.sin_port);
+    printf("s > init server %s:%d\n", local_ip, local_port);
 
     // Bucle principal
     while (1) {
