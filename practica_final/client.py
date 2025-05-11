@@ -386,7 +386,8 @@ class client:
             users = []
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((client._server, client._port))
-                message = f"LIST_USERS\0{client._current_user}\0"
+                timestamp = client._get_timestamp()
+                message = f"LIST_USERS\0{timestamp}\0{client._current_user}\0"
                 s.sendall(message.encode())
                 
                 rc = int.from_bytes(s.recv(1), byteorder='little')
