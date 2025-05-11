@@ -1,7 +1,7 @@
 # Variables
 CC = gcc
-CFLAGS = $(shell pkg-config --cflags libtirpc)
-LIBS = $(shell pkg-config --libs libtirpc) -lpthread
+CFLAGS = -I/usr/include/tirpc $(shell pkg-config --cflags libtirpc)
+LIBS = -ltirpc -lpthread
 RPCGEN = rpcgen -Y /usr/bin
 
 # Archivos generados por rpcgen
